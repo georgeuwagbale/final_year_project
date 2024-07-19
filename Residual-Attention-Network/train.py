@@ -2,63 +2,18 @@ from __future__ import print_function, division
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.autograd import Variable
-from torch.utils.data import Dataset, DataLoader, random_split
-from torch.nn import LSTM
+from torch.utils.data import DataLoader, random_split
 import numpy as np
-import torchvision
-from torchvision import transforms, models, datasets
-import os
-# import cv2
+from torchvision import transforms
 import time
 from model.SteelDataset import SteelDataset
-# from model.residual_attention_network_pre import ResidualAttentionModel
-import matplotlib.pyplot as plt
-import cv2
+import json
 
-# from model.residual_attention_network import ResidualAttentionModel_92_32input_update as ResidualAttentionModel
 from model.residual_attention_network import ResidualAttentionModel_448input as ResidualAttentionModel
 model_file = 'model_92_sgd.pkl'
 
 
-def overlay_attention_map(image, attention_map):
-    # Convert tensor to numpy array and transpose to (height, width, channels)
-    image = image.transpose(1, 2, 0)
-
-    # Resize attention map to size of image
-    attention_map_resized = cv2.resize(attention_map, (image.shape[1], image.shape[0]))
-
-    # Average across the channel dimension
-    attention_map_resized = np.mean(attention_map_resized, axis=2)
-
-    # Normalize attention map for better visualization
-    attention_map_resized = ((attention_map_resized - attention_map_resized.min()) / (attention_map_resized.max() - attention_map_resized.min()) * 255).astype('uint8')
-
-    # Convert image to grayscale
-    image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    # Create a 3 channel image with the grayscale image
-    image_3channel = cv2.cvtColor(image_gray, cv2.COLOR_GRAY2BGR)
-
-    # Ensure attention_map_resized is single channel
-    # if len(attention_map_resized.shape) == 3 and attention_map_resized.shape[2] != 1:
-    #     attention_map_resized = cv2.cvtColor(attention_map_resized, cv2.COLOR_BGR2GRAY)
-    #
-
-    # Convert attention_map_resized to 8-bit single-channel image
-    attention_map_resized = cv2.convertScaleAbs(attention_map_resized)
-    # print(attention_map_resized.shape)
-    # Create a heatmap from the attention map
-    heatmap = cv2.applyColorMap(attention_map_resized, cv2.COLORMAP_JET)
-
-    # Convert image_3channel to the same data type as heatmap
-    image_3channel = image_3channel.astype(heatmap.dtype)
-
-    # # Overlay the heatmap on the image
-    overlayed_image = cv2.addWeighted(image_3channel, 0.5, heatmap, 0.5, 0)
-    #
-    return overlayed_image
-
+device = ('cuda' if torch.cuda.is_available() else 'cpu')
 
 # for test
 def test(model, test_loader, btrain=False, model_file='model_92.pkl'):
@@ -74,8 +29,8 @@ def test(model, test_loader, btrain=False, model_file='model_92.pkl'):
     class_total = list(0. for o in range(7))
 
     for images, labels in test_loader:
-        images = Variable(images)
-        labels = Variable(labels)
+        images, labels = images.to(device), labels.to(device)
+
         outputs = model(images)
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
@@ -99,59 +54,35 @@ def test(model, test_loader, btrain=False, model_file='model_92.pkl'):
 
 
 if __name__ == '__main__':
+    
+    with open('config.json', 'r') as config_file:
+        config = json.load(config_file)
+    
+    train_parameter = config['train_parameters']
+    model_parameters = config['model_parameters']
+    train_data = config['data_paths']['train_data']
 
-    # Image Preprocessing
+
     transform = transforms.Compose([
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomCrop((32, 32), padding=4),  # left, top, right, bottom
-        # transforms.Scale(224),
-        transforms.ToTensor()
-    ])
+            transforms.Resize(size=(150,2300)),
+            transforms.Grayscale(1),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.222])])  
+
     test_transform = transforms.Compose([
         transforms.ToTensor()
     ])
 
-    # train_dataset = datasets.CIFAR10(root='./data/',
-    #                                  train=True,
-    #                                  transform=transform,
-    #                                  download=True)
-    #
-    # test_dataset = datasets.CIFAR10(root='./data/',
-    #                                 train=False,
-    #                                 transform=test_transform)
 
-    # Data Loader (Input Pipeline)
-    # train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
-    #                                            batch_size=64,  # 64
-    #                                            shuffle=True, num_workers=8)
-    # test_loader = torch.utils.data.DataLoader(dataset=test_dataset,
-    #                                           batch_size=20,
-    #                                           shuffle=False)
-
-    # classes = ('plane', 'car', 'bird', 'cat',
-    #            'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
-
-    # transform = transforms.Compose([
-    #             transforms.Resize(size=(150, 2300)),
-    #             transforms.Grayscale(3),
-    #             transforms.ToTensor(),
-    #             transforms.Normalize([0.5, 0.7, 0.5], [0.222, 0.226, 0.333])])
-    #
-    # test_transform = transforms.Compose([
-    #         transforms.ToTensor()
-    #     ])
-
-    # Define paths to your image directories
-    root_dir = "C:/Users/DELL/OneDrive/Documents/isend/ResidualAttentionNetwork-pytorch/IMAGES/DEFECTS"  # "./IMAGES"
-    dataset = SteelDataset(root_dir, transform=transform)
-    # # print(dataset.__len__())
-    #
+    dataset = SteelDataset(train_data, transform=transform)
     train_size = int(0.8 * len(dataset))
     test_size = len(dataset) - train_size
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+
+    batch_size = train_parameter['batch_size'] 
     #
     train_loader = DataLoader(dataset=train_dataset,
-                              batch_size=2,  # 8
+                              batch_size=batch_size, 
                               shuffle=True, num_workers=8)
     test_loader = DataLoader(dataset=test_dataset,
                              batch_size=2,
@@ -160,17 +91,21 @@ if __name__ == '__main__':
     
 
     classes = ('broken', 'cracks', 'dents', 'depressions', 'hairs', 'incrustations', 'irregular overlaps')
-    # model = ResidualAttentionModel().cuda()
-    model = ResidualAttentionModel(len(classes))
-    # print(model)
+    
+    model = ResidualAttentionModel(len(classes)).to(device)
 
-    lr = 0.1  # 0.1
+    lr = train_parameter['learning_rate']  # 0.1
+    momentum = train_parameter['momentum']  # 0.9
+    weight_decay = train_parameter['weight_decay']  # 0.0001
+    nesterov = train_parameter['nesterov']  # True
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, nesterov=True, weight_decay=0.0001)
+
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum, nesterov=nesterov, weight_decay=weight_decay)
+
     is_train = True
     is_pretrain = False
     acc_best = 0
-    total_epoch = 30
+    total_epoch = train_parameter['epochs'] 
 
     if is_train is True:
         if is_pretrain == True:
@@ -181,21 +116,11 @@ if __name__ == '__main__':
             model.train()
             tims = time.time()
             for i, (images, labels) in enumerate(train_loader):
-                # images = Variable(images.cuda())
-                # images = Variable(images)
-                # print(images.data)
-                # labels = Variable(labels.cuda())
-                # labels = Variable(labels)
+                images, labels = images.to(device), labels.to(device)
 
                 # Forward + Backward + Optimize
                 optimizer.zero_grad()
                 outputs = model(images)
-
-                # print(images[0].size())
-                # for j in range(len(images)):
-                #     overlayed_image = overlay_attention_map(images[j].numpy(), attention_maps[j].detach().numpy())
-                #     plt.imshow(overlayed_image)
-                #     plt.show()
 
                 loss = criterion(outputs, labels)
                 loss.backward()
@@ -221,7 +146,7 @@ if __name__ == '__main__':
                     param_group['lr'] = lr
                     print(param_group['lr'])
                 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-                optim.SGD(model.parameters(), lr=lr, momentum=0.9, nesterov=True, weight_decay=0.0001)
+                optim.SGD(model.parameters(), lr=lr, momentum=momentum, nesterov=nesterov, weight_decay=weight_decay)
         # Save the Model
         torch.save(model.state_dict(), 'last_model_92_sgd.pkl')
 

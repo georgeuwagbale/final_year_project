@@ -31,10 +31,3 @@ class SteelDataset(Dataset):
             image = self.transform(image)
         label = self.class_to_idx[label]
         return image, label
-
-# Define transformations to apply to the images
-# transform = transforms.Compose([
-#     transforms.Resize((224, 224)),  # Resize images to a fixed size
-#     transforms.ToTensor(),           # Convert images to PyTorch tensors
-#     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalize images
-# ])
